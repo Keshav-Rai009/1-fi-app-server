@@ -2,7 +2,7 @@ const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 //console.log(getFirestore);
 
-const serviceAccount = require("../onefinancial-firebase-db-firebase-adminsdk-g68wg-51d8411d94.json");
+const serviceAccount = require("../firebase-admin-credentials.json");
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
   admin.initializeApp({
