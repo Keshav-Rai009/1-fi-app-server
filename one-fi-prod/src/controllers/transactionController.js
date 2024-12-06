@@ -63,7 +63,7 @@ class TransactionController {
   constructor() {
     this.getBsePassword = this.getBsePassword.bind(this);
     this.placeBseLumpsumOrder = this.placeBseLumpsumOrder.bind(this);
-    // this.generateOtp = this.generateOtp.bind(this);
+    // this.sendOtp = this.sendOtp.bind(this);
     // this.verifyOtp = this.verifyOtp.bind(this);
   }
 

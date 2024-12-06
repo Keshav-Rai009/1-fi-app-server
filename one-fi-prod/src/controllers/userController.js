@@ -22,7 +22,7 @@ class UserController {
     this.logIn = this.logIn.bind(this);
     this.logInViaFirebase = this.logInViaFirebase.bind(this);
     this.verifyOtpViaFirebase = this.verifyOtpViaFirebase.bind(this);
-    this.generateOtp = this.generateOtp.bind(this);
+    this.sendOtp = this.sendOtp.bind(this);
     this.verifyOtp = this.verifyOtp.bind(this);
   }
 
@@ -41,7 +41,7 @@ class UserController {
     try {
       // Generate OTP
       //console.log("hi 1", this);
-      const { success, mobileOtp, expirationTime } = await this.generateOtp(
+      const { success, mobileOtp, expirationTime } = await this.sendOtp(
         phoneNo
       );
       console.log("check", success, mobileOtp, expirationTime);
@@ -74,9 +74,8 @@ class UserController {
           kycStatus: "pending", // Matches `kycStatus` (string)
           last_name: "", // Matches `last_name` (string)
           middle_name: "", // Matches `middle_name` (string)
-          mobile_otp: mobileOtp.toString(), // Matches `mobile_otp` (string)
-          mobile_otp_expiry_time:
-            expirationTime?.toISOString() || otpExpiration, // Matches `mobile_otp_expiry_time` (timestamp)
+          mobile_otp: mobileOtp, // Matches `mobile_otp` (string)
+          mobile_otp_expiry_time: expirationTime || otpExpiration, // Matches `mobile_otp_expiry_time` (timestamp)
           phone_number: phoneNo, // Matches `phone_number` (string)
           photo_url: "https://example.com/photo.jpg", // Matches `photo_url` (string)
           uid: phoneNo, // Matches `uid` (string)
@@ -109,17 +108,23 @@ class UserController {
 
     // const token = await admin.auth().createCustomToken(user.uid);
     // console.log(user, token);
-    const { phoneNo } = req.body;
+    const { phoneNo, email } = req.body;
 
     // Step 1: Check if user exists
-    const userDoc = await firestoreDB.collection("users").doc(phoneNo).get();
+    let userDoc;
+
+    if (phoneNo) {
+      userDoc = await firestoreDB.collection("users").doc(phoneNo).get();
+    } else {
+      userDoc = await firestoreDB.collection("users").doc(email).get();
+    }
 
     if (!userDoc.exists) {
       return res.status(404).send({ message: "User not found" });
     }
 
     // Step 2: Send OTP to user via SNS
-    const { success, mobileOtp, expirationTime } = await this.generateOtp(
+    const { success, mobileOtp, emailOtp, expirationTime } = await this.sendOtp(
       phoneNo
     );
     if (!success) {
@@ -127,12 +132,19 @@ class UserController {
     }
 
     // Store OTP temporarily in Firestore for comparison
-    await firestoreDB.collection("users").doc(phoneNo).update({
-      mobile_otp: mobileOtp, // Store OTP temporarily for verification
-      mobile_otp_expiry_time: expirationTime,
-    });
+    await firestoreDB
+      .collection("users")
+      .doc(phoneNo)
+      .update({
+        email,
+        mobile_otp: mobileOtp || userDoc.mobile_otp, // Store OTP temporarily for verification
+        mobile_otp_expiry_time:
+          expirationTime || userDoc.mobile_otp_expiry_time,
+        email_otp: emailOtp || userDoc.email_otp,
+        email_otp_expiry_time: expirationTime || userDoc.email_otp_expiry_time,
+      });
 
-    res.status(200).send({ message: "OTP sent", mobileOtp });
+    res.status(200).send({ message: "OTP sent to phone no: ", phoneNo });
   }
 
   //   async logIn(req, res) {
@@ -149,7 +161,7 @@ class UserController {
   //     try {
   //       // Generate OTP
   //       //console.log("hi 1", this);
-  //       const { success, mobileOtp, expirationTime } = await this.generateOtp(
+  //       const { success, mobileOtp, expirationTime } = await this.sendOtp(
   //         phoneNo
   //       );
   //       console.log("check", success, mobileOtp, expirationTime);
@@ -211,103 +223,103 @@ class UserController {
   // Generate OTP using the Amazon API endpoint
 
   // Endpoint to send OTP
-  async logInViaFirebase(req, res) {
-    const { phoneNumber } = req.body;
-    const sessionCookieOptions = {
-      expiresIn: 60 * 60 * 1000, // 1 hour in milliseconds
-    };
+  // async logInViaFirebase(req, res) {
+  //   const { phoneNumber } = req.body;
+  //   const sessionCookieOptions = {
+  //     expiresIn: 60 * 60 * 1000, // 1 hour in milliseconds
+  //   };
 
-    if (!phoneNumber) {
-      return res.status(400).json({ message: "Phone number is required." });
-    }
+  //   if (!phoneNumber) {
+  //     return res.status(400).json({ message: "Phone number is required." });
+  //   }
 
-    try {
-      //   const verificationId = await admin.auth().createCustomToken(phoneNumber);
-      //   return res
-      //     .status(200)
-      //     .json({ message: "OTP sent successfully.", verificationId });
+  //   try {
+  //     //   const verificationId = await admin.auth().createCustomToken(phoneNumber);
+  //     //   return res
+  //     //     .status(200)
+  //     //     .json({ message: "OTP sent successfully.", verificationId });
 
-      const sessionInfo = await admin
-        .auth()
-        .createSessionCookie("123", sessionCookieOptions);
-      return res
-        .status(200)
-        .json({ message: "OTP sent successfully.", sessionInfo });
-    } catch (error) {
-      console.error("Error sending OTP:", error.message);
-      return res
-        .status(500)
-        .json({ message: "Failed to send OTP.", error: error.message });
-    }
-  }
+  //     const sessionInfo = await admin
+  //       .auth()
+  //       .createSessionCookie("123", sessionCookieOptions);
+  //     return res
+  //       .status(200)
+  //       .json({ message: "OTP sent successfully.", sessionInfo });
+  //   } catch (error) {
+  //     console.error("Error sending OTP:", error.message);
+  //     return res
+  //       .status(500)
+  //       .json({ message: "Failed to send OTP.", error: error.message });
+  //   }
+  // }
 
-  async verifyOtpViaFirebase(req, res) {
-    const { phoneNumber, otp, sessionInfo } = req.body;
+  // async verifyOtpViaFirebase(req, res) {
+  //   const { phoneNumber, otp, sessionInfo } = req.body;
 
-    if (!phoneNumber || !otp || !sessionInfo) {
-      return res
-        .status(400)
-        .json({ message: "Phone number, OTP, and session info are required." });
-    }
+  //   if (!phoneNumber || !otp || !sessionInfo) {
+  //     return res
+  //       .status(400)
+  //       .json({ message: "Phone number, OTP, and session info are required." });
+  //   }
 
-    try {
-      const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
+  //   try {
+  //     const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
 
-      if (!user) {
-        return res.status(404).json({ message: "User not found." });
-      }
-      // Verify OTP using Firebase
-      const decodedToken = await admin
-        .auth()
-        .verifyIdToken(sessionInfo, { otp });
+  //     if (!user) {
+  //       return res.status(404).json({ message: "User not found." });
+  //     }
+  //     // Verify OTP using Firebase
+  //     const decodedToken = await admin
+  //       .auth()
+  //       .verifyIdToken(sessionInfo, { otp });
 
-      if (decodedToken.phoneNumber !== phoneNumber) {
-        return res.status(401).json({
-          message: "Phone number mismatch for firebase login. Use the same no",
-        });
-      }
+  //     if (decodedToken.phoneNumber !== phoneNumber) {
+  //       return res.status(401).json({
+  //         message: "Phone number mismatch for firebase login. Use the same no",
+  //       });
+  //     }
 
-      // Update user state in Firestore
-      const userSnapshot = await db
-        .collection("users")
-        .where("phoneNumber", "==", phoneNumber)
-        .get();
-      if (userSnapshot.empty) {
-        return res.status(404).json({ message: "User not found." });
-      }
+  //     // Update user state in Firestore
+  //     const userSnapshot = await db
+  //       .collection("users")
+  //       .where("phoneNumber", "==", phoneNumber)
+  //       .get();
+  //     if (userSnapshot.empty) {
+  //       return res.status(404).json({ message: "User not found." });
+  //     }
 
-      //const userId = userSnapshot.docs[0].id;
-      await db.collection("users").doc(phoneNumber).update({
-        loggedIn: true,
-        lastLogin: new Date().toISOString(),
-      });
+  //     //const userId = userSnapshot.docs[0].id;
+  //     await db.collection("users").doc(phoneNumber).update({
+  //       loggedIn: true,
+  //       lastLogin: new Date().toISOString(),
+  //     });
 
-      //   if (isValidOtp) {
-      //     // return res
-      //     //   .status(200)
-      //     //   .json({ message: "Login successful.", user: isValidOtp });
+  //     //   if (isValidOtp) {
+  //     //     // return res
+  //     //     //   .status(200)
+  //     //     //   .json({ message: "Login successful.", user: isValidOtp });
 
-      //     // Update Firestore or any database with login success
-      //     await db.collection("users").doc(user.uid).update({
-      //       loggedIn: true,
-      //       lastLogin: new Date().toISOString(),
-      //     });
+  //     //     // Update Firestore or any database with login success
+  //     //     await db.collection("users").doc(user.uid).update({
+  //     //       loggedIn: true,
+  //     //       lastLogin: new Date().toISOString(),
+  //     //     });
 
-      return res
-        .status(200)
-        .json({ message: "Login successful.", userId: user.uid });
-      //   } else {
-      //     return res.status(401).json({ message: "Invalid OTP." });
-      //   }
-    } catch (error) {
-      console.error("Error verifying OTP:", error.message);
-      return res
-        .status(500)
-        .json({ message: "Failed to verify OTP.", error: error.message });
-    }
-  }
+  //     return res
+  //       .status(200)
+  //       .json({ message: "Login successful.", userId: user.uid });
+  //     //   } else {
+  //     //     return res.status(401).json({ message: "Invalid OTP." });
+  //     //   }
+  //   } catch (error) {
+  //     console.error("Error verifying OTP:", error.message);
+  //     return res
+  //       .status(500)
+  //       .json({ message: "Failed to verify OTP.", error: error.message });
+  //   }
+  // }
 
-  generateOtp = async (phoneNo, email = "") => {
+  sendOtp = async (phoneNo, email = "") => {
     const payload = {
       request: {
         userAttributes: {
@@ -315,8 +327,8 @@ class UserController {
           phone_number: phoneNo,
         },
         clientMetadata: {
-          sendEmailOtp: "false",
-          sendMobileOtp: "false",
+          sendEmailOtp: email ? true : false,
+          sendMobileOtp: phoneNo ? true : false,
         },
       },
     };
@@ -338,6 +350,7 @@ class UserController {
       console.log("OTP send to ", phoneNo, response);
       return {
         success: true,
+        emailOtp: response.data.emailOtp,
         mobileOtp: response.data.mobileOtp,
         expirationTime: response.data.expirationTime,
       };
@@ -351,12 +364,12 @@ class UserController {
 
   // Verify OTP method
   async verifyOtp(req, res) {
-    const { phoneNo, otp } = req.body;
+    const { phoneNo, otp, email = "" } = req.body;
 
-    if (!phoneNo || !otp) {
+    if (!(phoneNo || email) || !otp) {
       return res
         .status(400)
-        .json({ message: "Phone number and OTP are required" });
+        .json({ message: "Either phone number or email and OTP are required" });
     }
 
     try {
@@ -369,19 +382,19 @@ class UserController {
       }
 
       const userData = userDoc.data();
-      const storedOtp = userData.mobile_otp;
-      const otpExpiryTime = new Date(
-        userData.mobile_otp_expiry_time._seconds * 1000
-      );
+      const storedOtp = phoneNo ? userData.mobile_otp : userData.email_otp;
+      const otpExpiryTime = phoneNo
+        ? new Date(userData.mobile_otp_expiry_time._seconds * 1000)
+        : new Date(userData.email_otp_expiry_time._seconds * 1000);
 
       const currentTime = new Date().toISOString();
-      console.log(
-        currentTime,
-        otpExpiryTime,
-        storedOtp,
-        otp,
-        storedOtp === otp
-      );
+      // console.log(
+      //   currentTime,
+      //   otpExpiryTime,
+      //   storedOtp,
+      //   otp,
+      //   storedOtp === otp
+      // );
 
       // Check if OTP has expired
       if (currentTime > otpExpiryTime) {
@@ -396,11 +409,16 @@ class UserController {
           phoneNo,
           phoneNumber: phoneNo,
         });
-        await firestoreDB.collection("users").doc(phoneNumber).update({
-          logged_in: true,
-          last_login: new Date().toISOString(),
-        });
-        return res.status(200).json({ message: "Login successful.", token });
+        await firestoreDB
+          .collection("users")
+          .doc(phoneNumber)
+          .update({
+            logged_in: true,
+            last_login: new Date().toISOString(),
+            is_phone_verified: phoneNo ? true : false,
+            is_email_verified: email ? true : false,
+          });
+        return res.tatus(200).json({ message: "Login successful.", token });
         //return res.status(200).json({ message: "OTP verified successfully" });
       } else {
         return res.status(400).json({

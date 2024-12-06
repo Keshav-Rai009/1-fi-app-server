@@ -3,6 +3,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 //console.log(getFirestore);
 
 const serviceAccount = require("../firebase-admin-credentials.json");
+console.log(serviceAccount);
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
   admin.initializeApp({
